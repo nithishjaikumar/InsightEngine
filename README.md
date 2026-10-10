@@ -145,6 +145,28 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 - Alternative ReDoc: [http://127.0.0.1:8000/redoc](http://127.0.0.1:8000/redoc)
 - Health Check: [http://127.0.0.1:8000/health](http://127.0.0.1:8000/health)
 
+### Quick Start — Dashboard
+
+**Backend** — run in the first terminal:
+
+```powershell
+.\venv\Scripts\python.exe -m uvicorn app.main:app --reload
+```
+
+**Dashboard** — run in a second terminal:
+
+```powershell
+.\dashboard-venv\Scripts\python.exe -m streamlit run dashboard.py
+```
+
+| Resource | Link |
+|---|---|
+| Dashboard | [Open Dashboard](http://localhost:8501) |
+| API Documentation | [Swagger UI](http://127.0.0.1:8000/docs) |
+| Health Check | [Health Check](http://127.0.0.1:8000/health) |
+
+*MySQL must be running before starting the backend.*
+
 ---
 
 ## 5. Running Automated Tests
