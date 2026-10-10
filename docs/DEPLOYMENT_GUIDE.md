@@ -12,18 +12,17 @@ InsightEngine is designed to be deployed as a containerized web service connecti
 graph LR
     User[Client Application] -->|HTTPS| Proxy[Cloud Ingress / CDN]
     Proxy -->|Reverse Proxy Port 8000| Service[FastAPI Web Service: Render / AWS / Docker]
-    Service -->|TCP 3306 TLS| DB[(Managed MySQL 8: Aiven / AWS RDS / DigitalOcean)]
+    Service -->|TCP 3306 TLS| DB[(Managed MySQL 8: Aiven / TiDB Cloud / AWS RDS)]
 ```
 
-### Recommended Hosting Providers:
-1. **API Compute**:
-   - **Render**: Web Service deployment using Dockerfile or Native Python environment.
-   - **Railway / Fly.io**: Fast containerized deployments with automatic TLS.
-   - **AWS App Runner / ECS**: Enterprise production standard with horizontal auto-scaling.
-2. **Managed MySQL**:
-   - **Aiven for MySQL**: Managed MySQL 8 with TLS, connection pooling, and automated backups.
-   - **AWS RDS (MySQL 8)**: Multi-AZ automated failover and encryption at rest.
-   - **DigitalOcean Managed Databases**: Cost-effective managed MySQL.
+### Provider Comparison (Cost, Free-Tier & Compatibility):
+
+| Provider | Component | Cost / Free Tier | Python & MySQL Compatibility | TLS & Persistence | Selection Notes |
+|---|---|---|---|---|---|
+| **Render** | API Compute | Free Tier (512MB RAM, spins down on idle) | Full Dockerfile / Python 3.12 support | Automatic HTTPS on `*.onrender.com` | **Recommended for Compute**: 1-click Blueprint via `render.yaml`, automated health check, non-root Docker runtime. |
+| **Aiven** | Managed MySQL | Free Tier (1 CPU, 1GB RAM, 1GB disk) | MySQL 8.0 standard protocol | TLS enforced, persistent storage, automated backups | **Recommended for Database**: Zero credit card required on signup, true managed MySQL 8. |
+| **TiDB Cloud** | Managed MySQL | Free Tier Serverless (5GB storage, 50M request units/mo) | MySQL 8.0 wire-compatible | TLS enforced (`ssl_disabled=False`), persistent storage | Excellent free alternative. |
+| **Railway** | Compute + DB | $5 trial credit, then usage-based ($5/mo) | Docker & 1-click MySQL template | Private networking between services | Good paid option if unified single-platform hosting is desired. |
 
 ---
 
@@ -35,66 +34,78 @@ Never commit `.env` to source control. Set the following environment variables i
 |---|---|---|
 | `APP_NAME` | `InsightEngine` | Service identifier |
 | `APP_ENV` | `production` | Environment mode (`production`, `staging`, `development`) |
-| `DATABASE_URL` | `mysql+pymysql://<user>:<password>@<cloud-host>:3306/<database>?ssl_ca=/path/to/ca.pem` | Full MySQL connection URI with PyMySQL driver |
+| `DATABASE_URL` | `mysql+pymysql://<user>:<password>@<cloud-host>:<port>/<database>?ssl_disabled=False` | Full MySQL connection URI with PyMySQL driver |
 | `API_V1_PREFIX` | `/api/v1` | Versioned API route prefix |
-| `MAX_UPLOAD_SIZE_MB` | `10` | Maximum file size for CSV ingestion |
+| `MAX_UPLOAD_SIZE_MB` | `5` | Maximum file size for CSV ingestion |
 | `MAX_CSV_ROWS` | `5000` | Maximum rows allowed per CSV upload |
 
 ---
 
-## 3. Database Migration Procedure
+## 3. Step-by-Step Cloud Deployment Procedure
 
-Before starting the new container version in production, apply pending database migrations using Alembic:
+### Phase A: Managed Cloud MySQL Provisioning (Requires User Account)
+1. **Sign up at [Aiven.io](https://aiven.io)** (or [TiDB Cloud](https://tidbcloud.com)). No credit card required.
+2. Click **Create Service** -> Select **MySQL** -> Choose Cloud Region (e.g. AWS or GCP closest to your users) -> Select the **Free Tier**.
+3. Once provisioned (typically takes 2-3 minutes):
+   - Note the **Host**, **Port**, **User**, **Password**, and **Database Name** (default is usually `defaultdb`).
+   - Create a database named `insightengine` if desired, or use the default database name.
+   - Construct your connection string:
+     ```text
+     mysql+pymysql://<user>:<password>@<host>:<port>/<dbname>?ssl_disabled=False
+     ```
 
-```bash
-# Run migrations using the production DATABASE_URL
-alembic upgrade head
-```
+### Phase B: Push Repository to GitHub
+1. Create a new private or public repository on [GitHub](https://github.com/new) (e.g. `InsightEngine`).
+2. Link your local repository and push:
+   ```bash
+   git remote add origin https://github.com/<your-username>/InsightEngine.git
+   git branch -M main
+   git push -u origin main
+   ```
 
-In automated CI/CD pipelines (e.g., GitHub Actions, Render pre-deploy command):
-```bash
-# Render Pre-Deploy Command:
-alembic upgrade head
-```
+### Phase C: Deploy to Render via Blueprint (`render.yaml`)
+1. Log in to [Render Dashboard](https://dashboard.render.com).
+2. Click **New +** -> **Blueprint**.
+3. Select your `InsightEngine` GitHub repository.
+4. Render will detect `render.yaml` and configure:
+   - Web service name: `insightengine-api`
+   - Runtime: Docker (`Dockerfile`)
+   - Health check: `/health`
+5. Under environment variables, Render will prompt for `DATABASE_URL`:
+   - Paste your cloud MySQL connection string:
+     `mysql+pymysql://<user>:<password>@<host>:<port>/<dbname>?ssl_disabled=False`
+6. Click **Apply**.
+7. The container starts automatically:
+   - `entrypoint.sh` executes `alembic upgrade head`, creating the `projects`, `reviews`, and `alembic_version` tables in your cloud MySQL database.
+   - Uvicorn launches on port 8000 and serves traffic through Render's HTTPS reverse proxy.
 
 ---
 
-## 4. Production Start Command
+## 4. Public Deployment Verification Sequence
 
-In production, run Uvicorn with multiple workers without the `--reload` flag:
-
-```bash
-# Recommended command (calculating workers based on CPU cores: 2 * CPU + 1)
-uvicorn app.main:app --host 0.0.0.0 --port 8000 --workers 4
-```
-
----
-
-## 5. Deployment Verification Checklist
-
-Once deployed, run this automated verification sequence to confirm the deployment:
+Once Render deploys your service (e.g. `https://insightengine-api.onrender.com`), verify it with these exact steps:
 
 ### 1. Verify Health Check
 ```bash
 curl -f https://<your-service-domain>/health
-# Expected Output: {"status":"ok","app":"InsightEngine","environment":"production"}
+# Expected: {"status":"ok","app":"InsightEngine","environment":"production"}
 ```
 
 ### 2. Verify Swagger Documentation
 Open `https://<your-service-domain>/docs` in your browser.
 
-### 3. Create a Smoke-Test Project
+### 3. Create Smoke-Test Project
 ```bash
 curl -X POST https://<your-service-domain>/api/v1/projects \
   -H "Content-Type: application/json" \
-  -d '{"name": "Production Smoke Test", "description": "Verification project"}'
+  -d '{"name": "Public Verification", "description": "Cloud deployment verification project"}'
 ```
 
-### 4. Create a Review Under the Project
+### 4. Create Review Under Project
 ```bash
 curl -X POST https://<your-service-domain>/api/v1/projects/1/reviews \
   -H "Content-Type: application/json" \
-  -d '{"customer_name": "QA Bot", "rating": 5, "review_text": "Production deployment verified successfully!"}'
+  -d '{"customer_name": "QA Auditor", "rating": 5, "review_text": "Live cloud deployment verified with persistent MySQL!"}'
 ```
 
 ### 5. Ingest Sample CSV
@@ -103,16 +114,22 @@ curl -X POST https://<your-service-domain>/api/v1/projects/1/reviews/import-csv 
   -F "file=@sample_data/sample_reviews.csv"
 ```
 
-### 6. Verify Analytics Summary
+### 6. Verify Feedback Analytics
 ```bash
 curl https://<your-service-domain>/api/v1/projects/1/analytics/summary
 ```
 
+### 7. Clean Up Smoke Test Entities
+```bash
+# Delete reviews then delete project
+curl -X DELETE https://<your-service-domain>/api/v1/projects/1
+```
+
 ---
 
-## 6. Security & Hardening Best Practices
+## 5. Security & Secret Management
 
-1. **Enforce SSL/TLS**: Ensure the database connection string specifies SSL parameters when connecting over public networks.
-2. **Non-Root Container**: The provided `Dockerfile` creates and runs as `appuser` (UID 1000) rather than `root`.
-3. **CORS Configuration**: Restrict allowed origins in `app/main.py` if serving client browsers.
-4. **Rate Limiting**: Place a reverse proxy (e.g. Cloudflare, Nginx, or AWS WAF) in front of the API to protect against brute force and DDoS attacks.
+- **Zero Credential Commits**: The repository is protected by `.gitignore`. Local `.env` files and MySQL passwords are never committed.
+- **SSL/TLS**: Remote connections to cloud MySQL require encrypted transmission. The PyMySQL parameter `ssl_disabled=False` ensures TLS handshake is enforced.
+- **Container Isolation**: The `Dockerfile` drops root privileges and executes as `appuser` (UID 1000).
+- **Sanitized Errors**: The application captures database errors globally without exposing SQL tracebacks or table schema to public API consumers.
