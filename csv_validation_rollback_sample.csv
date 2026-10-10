@@ -1,0 +1,5 @@
+
+customer_name,rating,review_text
+Test Customer 1,5,Valid review for rollback test
+Test Customer 2,8,Invalid rating should be rejected
+Test Customer 3,4,Another otherwise valid review

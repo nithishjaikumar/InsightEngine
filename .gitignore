@@ -54,3 +54,14 @@ coverage.xml
 # Logs
 *.log
 logs/
+
+# Dashboard environment
+dashboard-venv/
+
+# Python cache and test artifacts
+__pycache__/
+.pytest_cache/
+
+# Local secrets
+.env
+.streamlit/secrets.toml
