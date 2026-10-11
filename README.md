@@ -150,7 +150,7 @@ uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 **Backend** — run in the first terminal:
 
 ```powershell
-.\venv\Scripts\python.exe -m uvicorn app.main:app --reload
+.\venv\Scripts\python.exe -m uvicorn app.main:app --reload --host 127.0.0.1 --port 8000
 ```
 
 **Dashboard** — run in a second terminal:
